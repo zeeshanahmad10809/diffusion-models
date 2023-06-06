@@ -16,7 +16,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
     """
     cosine schedule as proposed in https://arxiv.org/abs/2102.09672
     """
-    # TODO (2.3): Implement cosine beta/variance schedule as discussed in the paper mentioned above
+    # TODO: (2.3): Implement cosine beta/variance schedule as discussed in the paper mentioned above
     pass
 
 
@@ -24,14 +24,14 @@ def sigmoid_beta_schedule(beta_start, beta_end, timesteps):
     """
     sigmoidal beta schedule - following a sigmoid function
     """
-    # TODO (2.3): Implement a sigmoidal beta schedule. Note: identify suitable limits of where you want to sample the sigmoid function.
+    # TODO: (2.3): Implement a sigmoidal beta schedule. Note: identify suitable limits of where you want to sample the sigmoid function.
     # Note that it saturates fairly fast for values -x << 0 << +x
     pass
 
 
 class Diffusion:
 
-    # TODO (2.4): Adapt all methods in this class for the conditional case. You can use y=None to encode that you want to train the model fully unconditionally.
+    # TODO: (2.4): Adapt all methods in this class for the conditional case. You can use y=None to encode that you want to train the model fully unconditionally.
 
     def __init__(self, timesteps, get_noise_schedule, img_size, device="cuda"):
         """Diffusion Model
@@ -48,16 +48,13 @@ class Diffusion:
             device to use for processing, by default "cuda"
         """
         self.timesteps = timesteps
-
         self.img_size = img_size
         self.device = device
 
         # Note: In constructor, we're just calculating the required hyperparameters for forward and reverse diffusion process.
-
+        # All of these hyperparaters are defined in the IDDPM paper.
         # define beta schedule
         self.betas = get_noise_schedule(self.timesteps,) # shape (timesteps,)
-
-        # TODO: (2.2): Compute the central values for the equation in the forward pass already here so you can quickly use them in the forward pass.
 
         # define alphas
         self.alphas = 1 - self.betas # shape (timesteps,)
@@ -67,8 +64,8 @@ class Diffusion:
         self.sqrt_alpha_bar = torch.sqrt(self.alphas_bar) # shape (timesteps,)
         self.sqrt_one_minus_alpha_bar = torch.sqrt(1 - self.alphas_bar) # shape (timesteps,)
 
-
         # calculations for posterior q(x_{t-1} | x_t, x_0)
+        # Note: we prepend 0 because we need t=0 inorder to calculate the posterior for t=1.
         self.alphas_bar_minus_1 = torch.cat((torch.tensor([0]), self.alphas_bar[:-1])) # prepend 0 for t=1. shape (timesteps+1,)
         self.sqrt_betas = torch.sqrt(self.betas) # shape (timesteps,)
         self.sqrt_recip_alphas = 1 / torch.sqrt(self.alphas) # shape (timesteps,)
@@ -106,7 +103,8 @@ class Diffusion:
         # sample from N(0, 1) and then scale and shift it using parameteres of posterior std and mean respectively.
         # Remember: In IDDPM paper, we have equ. 10 and equ. 13 that can give us the posterior std and mean respectively.
         # std. have a closed-form solution but mean needs to be estimated using the reparameterization trick and predicting
-        # the noise at the timestep t-1 using the model.
+        # the noise at the timestep t-1 using the model. (We don't directly go from x_t to x_1, but sequentially.)
+        # Notice: equ. 13 is obtained by solving equ. 9 and equ. 11.
 
 
         # Step-01: Compute variance of the posterior distribution q(x_{t-1} | x_t, x_0) anaytically using equ. 10 in the paper.
@@ -122,7 +120,7 @@ class Diffusion:
             # simply return the mean of the posterior distribution q(x_{t-1} | x_t, x_0) for t=0. Don't sample.
             return posterior_mean # shape: (batch_size, channels, img_size, img_size)
         else:
-            # Here, we scale and shift the standard normal distribution N(0, 1) using the mean and std of the
+            # Here, we sample by scale and shift of standard normal distribution N(0, 1) using the mean and std of the
             # posterior distribution q(x_{t-1} | x_t, x_0), and return the sample x_{t-1} ~ q(x_{t-1} | x_t, x_0).
             return posterior_mean + extract(self.sqrt_betas, t, x.shape) * torch.randn_like(x, device=self.device) # shape: (batch_size, channels, img_size, img_size)
 
@@ -168,7 +166,7 @@ class Diffusion:
             imgs_at_t.append(x_t)
 
         # Step-03: Return the generated images
-        return imgs_at_t # shape: [(batch_size, channels, img_size, img_size), ...]
+        return imgs_at_t # shape: [(batch_size, channels, img_size, img_size), ...], len(imgs_at_t) = timesteps
 
     # forward diffusion (using the nice property)
     def q_sample(self, x_zero, t, noise=None):
@@ -208,14 +206,24 @@ class Diffusion:
         return x_t
 
     def p_losses(self, denoise_model, x_zero, t, noise=None, loss_type="l1"):
-        # TODO (2.2): compute the input to the network using the forward diffusion process and predict the noise using the model; if noise is None, you will need to create a new noise vector, otherwise use the provided one.
+        # TODO: (2.2): compute the input to the network using the forward diffusion process and predict the noise using the model; if noise is None, you will need to create a new noise vector, otherwise use the provided one.
+        if not noise:
+            noise = torch.randn_like(x_zero, device=self.device) # shape: (batch_size, channels, img_size, img_size), channels=3
+
+        # compute x_t using forward diffusion process
+        x_t = self.q_sample(x_zero, t, noise) # shape: (batch_size, channels, img_size, img_size)
+
+        # predict the noise at timestep t using the model
+        # Important: During training, we just denoise the image at timestep t using the denoising model, we don't need to
+        # perform the reverse diffusion process to get the image at timestep t-1.
+        noise_pred = denoise_model(x_t, t) # shape: (batch_size, channels, img_size, img_size), channels=3
 
         if loss_type == 'l1':
-            # TODO (2.2): implement an L1 loss for this task
-            loss = None
+            # TODO: (2.2): implement an L1 loss for this task
+            loss = F.l1_loss(noise_pred, noise)
         elif loss_type == 'l2':
-            # TODO (2.2): implement an L2 loss for this task
-            loss = None
+            # TODO: (2.2): implement an L2 loss for this task
+            loss = F.mse_loss(noise_pred, noise)
         else:
             raise NotImplementedError()
 

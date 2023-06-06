@@ -32,14 +32,36 @@ def parse_args():
     return parser.parse_args()
 
 
-def sample_and_save_images(n_images, diffusor, model, device, store_path):
+def sample_and_save_images(n_images, img_size, diffusor, model, device, store_path):
     # TODO: Implement - adapt code and method signature as needed
-    pass
+    
+    # sample images from the model
+    imgs_at_t = diffusor.sample(model, img_size, n_images)
+
+    return imgs_at_t
+
+
 
 
 def test(model, testloader, diffusor, device, args):
     # TODO: Implement - adapt code and method signature as needed
-    pass
+    batch_size = args.batch_size
+    timesteps = args.timesteps
+
+    with torch.no_grad():
+        pbar = tqdm(testloader)
+        for step, (images, labels) in enumerate(pbar):
+
+            images = images.to(device)
+
+            # Algorithm 1 line 3: sample t uniformly for every example in the batch
+            t = torch.randint(0, timesteps, (len(images),), device=device).long()
+            loss = diffusor.p_losses(model, images, t, loss_type="l2")
+
+            if step % args.log_interval == 0:
+                print('Test Step: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    step, step * len(images), len(testloader.dataset),
+                    100. * step / len(testloader), loss.item()))
 
 
 def train(model, trainloader, optimizer, diffusor, epoch, device, args):
@@ -67,9 +89,9 @@ def train(model, trainloader, optimizer, diffusor, epoch, device, args):
             break
 
 
-def test(args):
-    # TODO (2.2): implement testing functionality, including generation of stored images.
-    pass
+# def test(args):
+#     # TODO (2.2): implement testing functionality, including generation of stored images.
+#     pass
 
 
 def run(args):
@@ -123,5 +145,5 @@ def run(args):
 
 if __name__ == '__main__':
     args = parse_args()
-    # TODO (2.2): Add visualization capabilities
+    # TODO: (2.2): Add visualization capabilities
     run(args)

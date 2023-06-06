@@ -65,4 +65,4 @@ def extract(a, t, x_shape):
     """
     batch_size = t.shape[0]
     out = a.gather(-1, t.cpu()) # get values of "a" belong the timestep t in the batch. shape: (batch_size,)
-    return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
+    return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device) # shape: (batch_size, 1, 1, 1)
