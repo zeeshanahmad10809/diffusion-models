@@ -22,6 +22,7 @@ def parse_args():
     parser.add_argument('--timesteps', type=int, default=100, help='number of timesteps for diffusion model (default: 100)')
     parser.add_argument('--epochs', type=int, default=5, help='number of epochs to train (default: 5)')
     parser.add_argument('--lr', type=float, default=0.003, help='learning rate (default: 0.003)')
+    parser.add_argument('--classifier_free', action='store_true', default=False, help='train without classifier (default: False)')
     # parser.add_argument('--momentum', type=float, default=0.9, help='SGD momentum (default: 0.9)')
     parser.add_argument('--no_cuda', action='store_true', default=False, help='disables CUDA training')
     # parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
@@ -56,7 +57,7 @@ def test(model, testloader, diffusor, device, args):
 
             # Algorithm 1 line 3: sample t uniformly for every example in the batch
             t = torch.randint(0, timesteps, (len(images),), device=device).long()
-            loss = diffusor.p_losses(model, images, t, loss_type="l2")
+            loss = diffusor.p_losses(model, images, labels, t, loss_type="l2")
 
             if step % args.log_interval == 0:
                 print('Test Step: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
@@ -76,7 +77,7 @@ def train(model, trainloader, optimizer, diffusor, epoch, device, args):
 
         # Algorithm 1 line 3: sample t uniformly for every example in the batch
         t = torch.randint(0, timesteps, (len(images),), device=device).long()
-        loss = diffusor.p_losses(model, images, t, loss_type="l2")
+        loss = diffusor.p_losses(model, images, labels, t, loss_type="l2")
 
         loss.backward()
         optimizer.step()
@@ -96,13 +97,17 @@ def train(model, trainloader, optimizer, diffusor, epoch, device, args):
 
 def run(args):
     timesteps = args.timesteps
+    classifier_free_guidance = args.classifier_free
     image_size = 32  # TODO: (2.5): Adapt to new dataset
     channels = 3
     epochs = args.epochs
     batch_size = args.batch_size
     device = "cuda" if not args.no_cuda and torch.cuda.is_available() else "cpu"
 
-    model = Unet(dim=image_size, channels=channels, dim_mults=(1, 2, 4,)).to(device)
+    model = Unet(dim=image_size,
+                 channels=channels,
+                 dim_mults=(1, 2, 4,),
+                 class_free_guidance=classifier_free_guidance).to(device)
     optimizer = AdamW(model.parameters(), lr=args.lr)
 
     my_scheduler = lambda time_steps: linear_beta_schedule(0.0001, 0.02, time_steps)

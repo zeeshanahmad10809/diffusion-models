@@ -33,7 +33,7 @@ class Diffusion:
 
     # TODO: (2.4): Adapt all methods in this class for the conditional case. You can use y=None to encode that you want to train the model fully unconditionally.
 
-    def __init__(self, timesteps, get_noise_schedule, img_size, device="cuda"):
+    def __init__(self, timesteps, get_noise_schedule, img_size, classifier_free_guidance=False, w=0.3, device="cuda"):
         """Diffusion Model
 
         Parameters
@@ -44,11 +44,17 @@ class Diffusion:
             takes timesteps as input and returns a noise tensor of shape (timesteps,)
         img_size : int
             image size (assuming square images)
+        classifier_free_guidance : bool, optional
+            whether to use classifier-free guidance, by default False
+        w : float, optional
+            guidace factor, paper shows w ~ [0, 4.0], but works well with w=0.3 for FID, and w=4.0 for IS, by default 0.3
         device : str, optional
             device to use for processing, by default "cuda"
         """
         self.timesteps = timesteps
         self.img_size = img_size
+        self.classifier_free_guidance = classifier_free_guidance
+        self.w = w
         self.device = device
 
         # Note: In constructor, we're just calculating the required hyperparameters for forward and reverse diffusion process.
@@ -73,7 +79,7 @@ class Diffusion:
 
 
     @torch.no_grad()
-    def p_sample(self, model, x, t, t_index):
+    def p_sample(self, model, x, label, t, t_index):
         """reverse diffusion process
 
         Parameters
@@ -82,6 +88,8 @@ class Diffusion:
             noise predictor
         x : (batch_size, channels, img_size, img_size) tensor
             image at timestep t
+        label : (batch_size,) tensor
+            labels for each sample in the batch
         t : (batch_size,) tensor
             randomly sampled timesteps
         t_index : int
@@ -111,8 +119,17 @@ class Diffusion:
         posterior_betas = ((1 - self.alphas_bar_minus_1) / (1 - self.alphas_bar)) * self.betas # shape (timesteps,)
 
         # Step-02: Compute the mean of the posterior distribution q(x_{t-1} | x_t, x_0) using the reparameterization trick and equ. 13 in the paper.
+        # Step-02.1: compute noise with class-condition and without class-condition
+        if self.classifier_free_guidance:
+            conditioned_noise = model(x, t, class_cond=label)
+            unconditioned_noise = model(x, t)
+            # Step-02.2: compute the noise using interpolation between conditioned and unconditioned noise
+            pred_noise = (1 + self.w) * conditioned_noise - self.w * unconditioned_noise
+        else:
+            pred_noise = model(x, t)
+        
         posterior_mean = extract(self.sqrt_recip_alphas, t, x.shape) *\
-            (x - (extract(self.betas, t, x.shape) * model(x, t)) /\
+            (x - (extract(self.betas, t, x.shape) * pred_noise) /\
             extract(self.sqrt_recip_one_minus_alphas_bar, t, x.shape)) # shape: (batch_size, channels, img_size, img_size)
         
         # Step-03: Sample from the posterior distribution q(x_{t-1} | x_t, x_0) using the reparameterization trick.
@@ -126,7 +143,7 @@ class Diffusion:
 
     # Algorithm 2 (including returning all images)
     @torch.no_grad()
-    def sample(self, model, image_size, batch_size=16, channels=3):
+    def sample(self, model, labels, image_size, batch_size=16, channels=3):
         """sample from the model
 
         Parameters
@@ -135,6 +152,8 @@ class Diffusion:
             noise predictor
         image_size : int
             image size (assuming square images)
+        labels : (batch_size,) tensor
+            labels for each sample in the batch
         batch_size : int, optional
             batch size, by default 16
         channels : int, optional
@@ -162,7 +181,7 @@ class Diffusion:
         for step_t in tqdm(reversed(range(self.timesteps)), desc="reverse diffusion process", total=self.timesteps):
             # Step-02.1: create a batch of same timestep t for all samples in the batch
             t = torch.tensor([step_t] * batch_size, device=self.device).long() # no need to use long() here, but just to be sure
-            x_t = self.p_sample(model, x_t, t, t_index=step_t) # shape: (batch_size, channels, img_size, img_size)
+            x_t = self.p_sample(model, x_t, labels, t, t_index=step_t) # shape: (batch_size, channels, img_size, img_size)
             imgs_at_t.append(x_t)
 
         # Step-03: Return the generated images

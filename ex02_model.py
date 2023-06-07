@@ -1,4 +1,5 @@
 import math
+import random
 from functools import partial
 from einops import rearrange, reduce
 import torch
@@ -217,11 +218,34 @@ class Unet(nn.Module):
         num_classes=None,
         p_uncond=None,
     ):
+        """Unet
+
+        Parameters
+        ----------
+        dim : int
+            dimension of the intermediate channels
+        init_dim : int, optional
+            projects the input image to this dimension, by default None
+        out_dim : int, optional
+            number of channels in the output image, by default None (i.e. same as input)
+        dim_mults : tuple, optional
+           determines the number of channels in each block of the Unet, by default (1, 2, 4, 8)
+        channels : int, optional
+            number of channels in the input image, by default 3
+        resnet_block_groups : int, optional
+            number of groups in each ResNet block for GroupNorm, by default 4
+        class_free_guidance : bool, optional
+            whether to use class-free guidance, by default False
+        p_uncond : float e ~ (0.1, 0.2), optional
+            probability of replacing the class embedding with the null token, by default None
+        """
         super().__init__()
 
         # determine dimensions
         self.channels = channels
         input_channels = channels   # adapted from the original source
+        self.num_classes = num_classes
+        self.p_uncond = default(p_uncond, 0.1)
 
         init_dim = default(init_dim, dim)
         self.init_conv = nn.Conv2d(input_channels, init_dim, 1, padding=0)  # changed to 1 and 0 from 7,3
@@ -245,18 +269,17 @@ class Unet(nn.Module):
 
         # TODO: Implement a class embedder for the conditional part of the classifier-free guidance & define a default
         self.class_free_guidance = class_free_guidance
-        class_dim = None
+        class_dim = dim*4
         if self.class_free_guidance:
-            class_dim = dim * 4
-            self.p_uncond = default(p_uncond, 0.1)
+            # we decided to use the dictionary size of num_classes+1 to account for the null class.
+            # The implementation by lucidrains uses the dictionary size of num_classes, and then uses the
+            # nn.Parameter() to add the null class embedding. However, we decided to resize the dictionary.
+            self.class_embedding = nn.Embedding(self.num_classes+1, dim) # shape: (num_classes+null_class, dim*4)
             self.class_mlp = nn.Sequential(
-                nn.Dropout(p=self.p_uncond),
-                nn.Embedding(num_classes, class_dim),
-                nn.Linear(class_dim, class_dim),
+                nn.Linear(dim, class_dim),
                 nn.GELU(),
                 nn.Linear(class_dim, class_dim),
             ) # shape: (b, dim*4)
-        
 
         # layers
         self.downs = nn.ModuleList([])
@@ -301,13 +324,32 @@ class Unet(nn.Module):
                 )
             )
 
+        # out_dim is the same number of channels and dimensions as the input image because Unet is predicting
+        # the noise that is added to the input image which will be used to calculate the mean in the reverse
+        # diffusion process.
         self.out_dim = default(out_dim, channels) # out_dim is the number of channels in the output image
 
         self.final_res_block = block_klass(dim * 2, dim, time_emb_dim=time_dim, classes_emb_dim=class_dim)
-        self.final_conv = nn.Conv2d(dim, self.out_dim, 1)
+        self.final_conv = nn.Conv2d(dim, self.out_dim, 1) # 
 
     def forward(self, x, time, class_cond=None):
+        """Unet forward pass
 
+        Parameters
+        ----------
+        x : (b, channels, h, w) tensor
+            batch of images
+        time : (b,) int tensor
+            time step for each sample in the batch
+        class_cond : (b,) int tensor, optional
+            class label for each sample in the batch, by default None
+
+        Returns
+        -------
+        (b, channels, h, w) tensor
+            predicted noise for all pixels across all channels
+        """
+        b = x.shape[0]
         x = self.init_conv(x)
         r = x.clone() # clone here for the final residual connection
 
@@ -317,9 +359,26 @@ class Unet(nn.Module):
         #  - for each element in the batch, the class embedding is replaced with the null token with a certain probability during training
         #  - during testing, you need to have control over whether the conditioning is applied or not
         #  - analogously to the time embedding, the class embedding is provided in every ResNet block as additional conditioning
+        
+        #shape of class_cond: (b,)
         if self.class_free_guidance:
-            class_cond = F.one_hot(class_cond, num_classes=10).float()
-            class_cond = self.class_mlp(class_cond) # shape: (b, dim*4)
+            if self.training:
+                # During training, replace the class embedding with the null class with probability p_uncond
+                # generate random numbers between 0 and 1 for each element in the batch and then
+                # check if the random number is less than p_uncond. If yes, replace the class embedding
+                # with the null class embedding. So we replace 20% of the class embeddings with the null class.
+                mask = torch.rand(class_cond.shape[0]) < self.p_uncond # shape: (b,)
+                class_cond[mask] = self.num_classes # shape: (b,)
+                class_embedding = self.class_embedding(class_cond) # shape: (b, dim)
+                class_cond = self.class_mlp(class_embedding) # shape: (b, dim*4)
+            else:
+                # During test time, don't replace the class embedding with the null class embedding, but
+                # use the class embedding after checking if it is not null class embedding. If it is null class
+                # then just let it used by the model, because later it be handled by the ResNet block.
+                if class_cond:
+                    class_embedding = self.class_embedding(class_cond) # shape: (b, dim)
+                    class_cond = self.class_mlp(class_embedding) # shape: (b, dim*4)
+        
 
         h = []
 
@@ -350,14 +409,14 @@ class Unet(nn.Module):
         x = torch.cat((x, r), dim=1) # r is the residual connection that we stored earlier
 
         x = self.final_res_block(x, t, class_cond)
-        return self.final_conv(x)
+        return self.final_conv(x) # shape: (b, 3, h, w) is the predicted noise
 
 
 if __name__ == "__main__":
-    x = torch.randn(1, 3, 32, 32)
-    time = torch.randn(1, 32)
-    class_cond = torch.randint(0, 10, (1,))
-    unet = Unet(32, channels=3)
-    print(unet(x, time).shape)
+    x = torch.randn(4, 3, 32, 32) # shape: (b, c, h, w)
+    time = torch.randint(0, 4000, (4,)) # shape: (b,)
+    class_cond = torch.randint(0, 10, (4,)) # shape: (b,)
+    # unet = Unet(32, channels=3)
+    # print(unet(x, time).shape)
     unet1 =  Unet(32, channels=3, class_free_guidance=True, num_classes=10, p_uncond=0.1)
     print(unet1(x, time, class_cond).shape)
