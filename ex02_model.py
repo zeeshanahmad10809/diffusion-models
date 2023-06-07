@@ -83,10 +83,18 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, dim_out, *, time_emb_dim=None, classes_emb_dim=None, groups=8):
         super().__init__()
-        self.mlp = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(int(time_emb_dim) + int(classes_emb_dim), dim_out * 2) # dim_out*2 because we need to separate scale and shift
-        ) if exists(time_emb_dim) or exists(classes_emb_dim) else None
+        if exists(time_emb_dim) and exists(classes_emb_dim):
+            self.mlp = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(int(time_emb_dim) + int(classes_emb_dim), dim_out * 2) # dim_out*2 because we need to separate scale and shift
+            )
+        elif exists(time_emb_dim):
+            self.mlp = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(int(time_emb_dim), dim_out * 2) # dim_out*2 because we need to separate scale and shift
+            )
+        else:
+            self.mlp = None
 
         self.block1 = Block(dim, dim_out, groups=groups)
         self.block2 = Block(dim_out, dim_out, groups=groups)
@@ -95,18 +103,22 @@ class ResnetBlock(nn.Module):
     def forward(self, x, time_emb=None, class_emb=None):
         # time_emb: (b, dim*4), class_emb: (b, dim_in*4). dim is different from dim_in and dim_out
         # dim is the dimension of the intermediate channels somewhat similar to dimension in the transformer.
-
         scale_shift = None
-        if exists(self.mlp) and (exists(time_emb) or exists(class_emb)):
+        if exists(self.mlp) and (exists(time_emb) and exists(class_emb)):
             cond_emb = tuple(filter(exists, (time_emb, class_emb)))
             cond_emb = torch.cat(cond_emb, dim=-1) # shape: (b, dim*4 + dim*4). concatenate time_emb and class_emb
             cond_emb = self.mlp(cond_emb)
             cond_emb = rearrange(cond_emb, 'b c -> b c 1 1') # shape: (b, dim_out*2, 1, 1)
             scale_shift = cond_emb.chunk(2, dim=1) # separate scale and shift
+        elif exists(self.mlp) and exists(time_emb):
+            time_emb = self.mlp(time_emb)
+            time_emb = rearrange(time_emb, 'b c -> b c 1 1') # shape: (b, dim_out*2, 1, 1)
+            scale_shift = time_emb.chunk(2, dim=1) # separate scale and shift
+        else:
+            raise ValueError("Either both time_emb and class_emb should be provided or only time_emb should be provided")
 
         h = self.block1(x, scale_shift=scale_shift) # x: (b, dim, h, w), scale_shift: ((b, dim_out, 1, 1), (b, dim_out, 1, 1))
         # Here x is (b, dim, h, w) but in Block's forward pass, it is projected to (b, dim_out, h, w). Then we can shift and scale
-
         h = self.block2(h)
 
         return h + self.res_conv(x)
@@ -269,7 +281,7 @@ class Unet(nn.Module):
 
         # TODO: Implement a class embedder for the conditional part of the classifier-free guidance & define a default
         self.class_free_guidance = class_free_guidance
-        class_dim = dim*4
+        class_dim = dim*4 if self.class_free_guidance else None
         if self.class_free_guidance:
             # we decided to use the dictionary size of num_classes+1 to account for the null class.
             # The implementation by lucidrains uses the dictionary size of num_classes, and then uses the
@@ -372,12 +384,11 @@ class Unet(nn.Module):
                 class_embedding = self.class_embedding(class_cond) # shape: (b, dim)
                 class_cond = self.class_mlp(class_embedding) # shape: (b, dim*4)
             else:
-                # During test time, don't replace the class embedding with the null class embedding, but
-                # use the class embedding after checking if it is not null class embedding. If it is null class
-                # then just let it used by the model, because later it be handled by the ResNet block.
-                if class_cond:
-                    class_embedding = self.class_embedding(class_cond) # shape: (b, dim)
-                    class_cond = self.class_mlp(class_embedding) # shape: (b, dim*4)
+                # During test time, replace all of the labels with the null class
+                if not class_cond:
+                    class_cond = torch.ones(b, dtype=torch.long)*self.num_classes # shape: (b,)
+                class_embedding = self.class_embedding(class_cond) # shape: (b, dim)
+                class_cond = self.class_mlp(class_embedding) # shape: (b, dim*4)
         
 
         h = []
@@ -416,7 +427,7 @@ if __name__ == "__main__":
     x = torch.randn(4, 3, 32, 32) # shape: (b, c, h, w)
     time = torch.randint(0, 4000, (4,)) # shape: (b,)
     class_cond = torch.randint(0, 10, (4,)) # shape: (b,)
-    # unet = Unet(32, channels=3)
-    # print(unet(x, time).shape)
     unet1 =  Unet(32, channels=3, class_free_guidance=True, num_classes=10, p_uncond=0.1)
     print(unet1(x, time, class_cond).shape)
+    unet2 = Unet(32, channels=3)
+    print(unet2(x, time).shape)

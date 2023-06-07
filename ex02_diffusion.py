@@ -2,11 +2,29 @@ import torch
 import torch.nn.functional as F
 from ex02_helpers import extract
 from tqdm import tqdm
+from functools import partial
+
+# TODO: remove this import from here
+from ex02_model import Unet
 
 
 def linear_beta_schedule(beta_start, beta_end, timesteps):
     """
     standard linear beta/variance schedule as proposed in the original paper
+
+    Parameters
+    ----------
+    beta_start : float
+        starting value for beta
+    beta_end : float
+        end value for beta
+    timesteps : int
+        number of timesteps
+
+    Returns
+    -------
+    torch.Tensor
+        beta schedule
     """
     return torch.linspace(beta_start, beta_end, timesteps)
 
@@ -64,7 +82,7 @@ class Diffusion:
 
         # define alphas
         self.alphas = 1 - self.betas # shape (timesteps,)
-        self.aphas_bar = torch.cumprod(self.alphas, axis=0) # shape (timesteps,). CAUTION: don't work without axis=o even though it's a 1D tensor
+        self.alphas_bar = torch.cumprod(self.alphas, axis=0) # shape (timesteps,). CAUTION: don't work without axis=o even though it's a 1D tensor
         
         # calculations for diffusion q(x_t | x_{t-1}) and others
         self.sqrt_alpha_bar = torch.sqrt(self.alphas_bar) # shape (timesteps,)
@@ -247,3 +265,28 @@ class Diffusion:
             raise NotImplementedError()
 
         return loss
+
+
+if __name__ == "__main__":
+    beta_start = 0.0001
+    beta_end = 0.02
+    scheduler = partial(linear_beta_schedule, beta_start, beta_end)
+    img = torch.randn(1, 3, 32, 32)
+    labels = torch.tensor([3])
+    diffusion = Diffusion(50, scheduler, 32, classifier_free_guidance=True, w=0.3, device="cpu")
+    x = diffusion.q_sample(img, torch.tensor([10]))
+    print(x.shape)
+
+    unet1 =  Unet(32, channels=3, class_free_guidance=True, num_classes=10, p_uncond=0.1)
+    unet1.eval() # make sure to use eval mode, because we distinguish between train and eval mode in UNet for class-free guidance
+    imgs_at_t = diffusion.sample(unet1, labels, 32, batch_size=1, channels=3)
+    print(len(imgs_at_t))
+
+    diffusion1 = Diffusion(50, scheduler, 32, device="cpu")
+    x1 = diffusion1.q_sample(img, torch.tensor([10]))
+    print(x1.shape)
+
+    unet1 =  Unet(32, channels=3)
+    unet1.eval()
+    imgs_at_t1 = diffusion1.sample(unet1, labels, 32, batch_size=1, channels=3)
+    print(len(imgs_at_t1))
