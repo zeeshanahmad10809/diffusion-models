@@ -116,13 +116,13 @@ def run(args):
     # define image transformations (e.g. using torchvision)
     transform = Compose([
         transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),    # turn into torch Tensor of shape CHW, divide by 255
+        transforms.ToTensor(),    # turn into torch Tensor of shape CHW, divide by 255 to get values in [0, 1]
         transforms.Lambda(lambda t: (t * 2) - 1)   # scale data to [-1, 1] to meet model input requirements
     ])
     reverse_transform = Compose([
-        Lambda(lambda t: (t.clamp(-1, 1) + 1) / 2),
+        Lambda(lambda t: (t.clamp(-1, 1) + 1) / 2), # scale data back to [0, 1]
         Lambda(lambda t: t.permute(1, 2, 0)),  # CHW to HWC
-        Lambda(lambda t: t * 255.),
+        Lambda(lambda t: t * 255.), # scale data back to [0, 255]
         Lambda(lambda t: t.numpy().astype(np.uint8)),
         ToPILImage(),
     ])
