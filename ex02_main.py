@@ -33,15 +33,15 @@ def parse_args():
     return parser.parse_args()
 
 
-def sample_and_save_images(n_images, img_size, diffusor, model, device, store_path):
+def sample_and_save_images(n_images, img_size, diffusor, model, reverse_transform, device, store_path):
     # TODO: Implement - adapt code and method signature as needed
     
     # sample images from the model
     imgs_at_t = diffusor.sample(model, img_size, n_images)
+    # reverse the transformation applied to the images
+    imgs_at_t = reverse_transform(imgs_at_t) 
 
     return imgs_at_t
-
-
 
 
 def test(model, testloader, diffusor, device, args):

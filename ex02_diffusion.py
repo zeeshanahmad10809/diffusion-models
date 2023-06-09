@@ -271,6 +271,7 @@ if __name__ == "__main__":
     beta_start = 0.0001
     beta_end = 0.02
     scheduler = partial(linear_beta_schedule, beta_start, beta_end)
+
     img = torch.randn(1, 3, 32, 32)
     labels = torch.tensor([3])
     diffusion = Diffusion(50, scheduler, 32, classifier_free_guidance=True, w=0.3, device="cpu")
