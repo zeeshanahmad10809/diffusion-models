@@ -248,6 +248,8 @@ class Unet(nn.Module):
             number of groups in each ResNet block for GroupNorm, by default 4
         class_free_guidance : bool, optional
             whether to use class-free guidance, by default False
+        num_classes : int, optional
+            number of classes in the dataset, by default None
         p_uncond : float e ~ (0.1, 0.2), optional
             probability of replacing the class embedding with the null token, by default None
         """
