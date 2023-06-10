@@ -35,7 +35,26 @@ def cosine_beta_schedule(timesteps, s=0.008):
     cosine schedule as proposed in https://arxiv.org/abs/2102.09672
     """
     # TODO: (2.3): Implement cosine beta/variance schedule as discussed in the paper mentioned above
-    pass
+    T = timesteps
+    t = torch.arange(0, T+1, dtype=torch.float64)
+
+    # compute f_t
+    t_over_T_plus_s = t / (T + s)
+    one_plus_s = 1 + s
+    f_t = torch.cos((t_over_T_plus_s / one_plus_s) * (torch.pi / 2))**2
+
+    # compute alpha_bar_t
+    alpha_bar_t = f_t / f_t[0]
+
+    # compute beta_t
+    alpha_bar_t_minus_1 = alpha_bar_t[:-1] # make sure to first slice alpha_bar_t_minus_1 before slicing alpha_bar_t
+    alpha_bar_t = alpha_bar_t[1:]
+    beta_t = 1 - (alpha_bar_t / alpha_bar_t_minus_1)
+    # IDDPM paper recommends to clip beta_t to 0.999, but don't provide information regarding the lower bound.
+    # But for linear beta schedule, they use 0.0001 as lower bound, so we use the same lower bound for cosine beta schedule.
+    beta_t.clip_(min=0.0001, max=0.999)
+
+    return beta_t
 
 
 def sigmoid_beta_schedule(beta_start, beta_end, timesteps):
@@ -44,7 +63,19 @@ def sigmoid_beta_schedule(beta_start, beta_end, timesteps):
     """
     # TODO: (2.3): Implement a sigmoidal beta schedule. Note: identify suitable limits of where you want to sample the sigmoid function.
     # Note that it saturates fairly fast for values -x << 0 << +x
-    pass
+    slimit = (-6, 6)
+    T = timesteps
+    t = torch.arange(0, T+1, dtype=torch.float64)
+
+    # compute input of sigmoid function z_t
+    z_t = slimit[0] + (2 * t / T) * slimit[1]
+
+    # compute beta_t
+    beta_t = beta_start + torch.sigmoid(z_t) * (beta_end - beta_start)
+
+    return beta_t
+
+
 
 
 class Diffusion:
@@ -76,7 +107,7 @@ class Diffusion:
         self.device = device
 
         # Note: In constructor, we're just calculating the required hyperparameters for forward and reverse diffusion process.
-        # All of these hyperparaters are defined in the IDDPM paper.
+        # All of these hyperparaters are defined in the DDPM paper.
         # define beta schedule
         self.betas = get_noise_schedule(self.timesteps,) # shape (timesteps,)
 
@@ -268,26 +299,48 @@ class Diffusion:
 
 
 if __name__ == "__main__":
-    beta_start = 0.0001
-    beta_end = 0.02
-    scheduler = partial(linear_beta_schedule, beta_start, beta_end)
+    # beta_start = 0.0001
+    # beta_end = 0.02
+    # scheduler = partial(linear_beta_schedule, beta_start, beta_end)
+# 
+    # img = torch.randn(1, 3, 32, 32)
+    # labels = torch.tensor([3])
+    # diffusion = Diffusion(50, scheduler, 32, classifier_free_guidance=True, w=0.3, device="cpu")
+    # x = diffusion.q_sample(img, torch.tensor([10]))
+    # print(x.shape)
+# 
+    # unet1 =  Unet(32, channels=3, class_free_guidance=True, num_classes=10, p_uncond=0.1)
+    # unet1.eval() # make sure to use eval mode, because we distinguish between train and eval mode in UNet for class-free guidance
+    # imgs_at_t = diffusion.sample(unet1, labels, 32, batch_size=1, channels=3)
+    # print(len(imgs_at_t))
+# 
+    # diffusion1 = Diffusion(50, scheduler, 32, device="cpu")
+    # x1 = diffusion1.q_sample(img, torch.tensor([10]))
+    # print(x1.shape)
+# 
+    # unet1 =  Unet(32, channels=3)
+    # unet1.eval()
+    # imgs_at_t1 = diffusion1.sample(unet1, labels, 32, batch_size=1, channels=3)
+    # print(len(imgs_at_t1))
 
-    img = torch.randn(1, 3, 32, 32)
-    labels = torch.tensor([3])
-    diffusion = Diffusion(50, scheduler, 32, classifier_free_guidance=True, w=0.3, device="cpu")
-    x = diffusion.q_sample(img, torch.tensor([10]))
-    print(x.shape)
+    from PIL import Image
+    import numpy as np
+    from ex02_helpers import visualize_forward_diffusion, create_video
 
-    unet1 =  Unet(32, channels=3, class_free_guidance=True, num_classes=10, p_uncond=0.1)
-    unet1.eval() # make sure to use eval mode, because we distinguish between train and eval mode in UNet for class-free guidance
-    imgs_at_t = diffusion.sample(unet1, labels, 32, batch_size=1, channels=3)
-    print(len(imgs_at_t))
-
-    diffusion1 = Diffusion(50, scheduler, 32, device="cpu")
-    x1 = diffusion1.q_sample(img, torch.tensor([10]))
-    print(x1.shape)
-
-    unet1 =  Unet(32, channels=3)
-    unet1.eval()
-    imgs_at_t1 = diffusion1.sample(unet1, labels, 32, batch_size=1, channels=3)
-    print(len(imgs_at_t1))
+    schedulers = [partial(linear_beta_schedule, 0.0001, 0.02),
+                  partial(cosine_beta_schedule, s=0.008),
+                  partial(sigmoid_beta_schedule, 0.0001, 0.02),]
+                  # partial(cosine_beta_schedule1, s=0.008)]
+    scheduler_names = ["linear", "cosine", "cosine1"]
+    diffusors = [Diffusion(1000, scheduler, 1, device="cpu") for scheduler in schedulers]
+    img = Image.open("/home/permute/Downloads/pikachu.jpg")
+    # reduce size by factor of 4
+    img = img.resize((img.size[0] // 4, img.size[1] // 4))
+    img = np.array(img) / 255.
+    grid = visualize_forward_diffusion(diffusors, scheduler_names, img, 3, 2, return_fig=True)
+    Image.fromarray(grid).save("forward_diffusion.png")
+    print("creating images...")
+    timestep_images = [visualize_forward_diffusion(diffusors, scheduler_names, img, 3, i, True) for i in range(1000)]
+    print("creating video...")
+    create_video(timestep_images, 0, 120, "videos/forward_diffusion.mp4")
+    
