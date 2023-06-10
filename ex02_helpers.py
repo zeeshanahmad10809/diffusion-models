@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 from PIL import Image, ImageDraw, ImageFont
-from torch import nn
+from torch import nn, from_numpy, tensor
 from inspect import isfunction
 from einops.layers.torch import Rearrange
 
@@ -72,7 +72,70 @@ def extract(a, t, x_shape):
     return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device) # shape: (batch_size, 1, 1, 1)
 
 
-def visualize(imgs: list, cols: int, epoch: int, time_step: int, return_fig: bool = False):
+def  visualize_forward_diffusion(diffusor_list: list, schedulers: list, img: list, cols: int, time_step: int, return_fig: bool = False):
+    """visualize different stages of beta-scheduling during forward diffusion
+    
+    Parameters
+    ----------
+    diffusors : list
+        list of diffusors with different beta-scheduling
+    schedulers : list(str)
+        list of beta-scheduler names for each diffusor
+    img : np.ndarray, shape: (height, width, channels)
+        image to be diffused within range [0, 1], don't need to be scaled to [-1, 1] because we don't use Unet in forward diffusion
+    cols : int
+        number of columns in the grid
+    time_step : int
+        current time step
+    return_fig : bool, optional
+        whether to return the figure or not, by default False
+
+    Returns
+    -------
+    grid: numpy.ndarray
+        grid of images
+    """
+    # convert the img to tensor
+    img = from_numpy(img).permute(2, 0, 1).unsqueeze(0) # shape: (1, channels, height, width)
+
+    noised_imgs = []
+    for i, diffusor in enumerate(diffusor_list):
+        noised_imgs.append(diffusor.q_sample(img, tensor([time_step,])).squeeze(0).permute(1, 2, 0).numpy())
+
+    rows = len(noised_imgs) // cols
+    # let's first create a grid of images with 5 pixels margin in between each image, 50 pixels margin from the top.
+    # we also want to append 20 pixels along the bottom of each row to write names of the beta schedulers, so we add 20 pixels
+    # to the height of the grid for each row
+    grid = np.ones((rows * noised_imgs[0].shape[0] + 5 * (rows - 1) + 70, cols * noised_imgs[0].shape[1] + 5 * (cols - 1) + 40, 3))
+    for i, im in enumerate(noised_imgs):
+        row = i // cols
+        col = i % cols
+        
+        # add 20 pixels white margin along the bottom of the im to write the name of beta scheduler
+        img = np.concatenate((im, np.ones((20, im.shape[1], 3))), axis=0)
+        img = Image.fromarray(np.uint8(img * 255))
+        draw = ImageDraw.Draw(img)
+        draw.text((img.size[0] // 2 - 70, img.size[1] - 13), f"beta: {schedulers[i]}", (0, 0, 0))
+        # convert the img back to numpy array between [0, 1]
+        im = np.array(img) / 255.
+        # let's now put the image in the grid
+        grid[row * (im.shape[0] + 5) + 50 : (row + 1) * im.shape[0] + 5 * row + 50, col * (im.shape[1] + 5) + 20 : (col + 1) * im.shape[1] + 5 * col + 20, :] = im
+
+    # Now we have to add the time-step to the grid
+    img = Image.fromarray(np.uint8(grid * 255))
+    draw = ImageDraw.Draw(img)
+    draw.text((img.size[0] // 2 - 70, 25), f"time-step: {time_step}", (0, 0, 0))
+    grid = np.array(img) # grid.dtype = np.uint8 because PIL operates on uint8 images with values in the range [0, 255]
+
+    if return_fig:
+        return grid
+    else:
+        plt.axis("off")
+        plt.imshow(grid)
+        plt.show()
+
+
+def visualize_reverse_diffusion(imgs: list, cols: int, epoch: int, time_step: int, return_fig: bool = False):
     """visualize: visualize a list of images in a grid
 
     Parameters
@@ -168,6 +231,6 @@ if __name__ == "__main__":
     epochs = 20
     fps = 120
     for e in range(epochs):
-        timesteps_imgs = [visualize(imgs_at_t, 8, e, t, return_fig=True) for t in range(0, 500)]
+        timesteps_imgs = [visualize_reverse_diffusion(imgs_at_t, 8, e, t, return_fig=True) for t in range(0, 500)]
         create_video(timesteps_imgs, e, fps, f"videos/video_{experiment_name}.mp4")
         print(f"epoch {e} done")
