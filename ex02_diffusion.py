@@ -258,7 +258,7 @@ class Diffusion:
         # Notice we sample the noise vector from a standard normal distribtuion of the same lenght as the image vector
         # and we don't add a single noise constant value because may just shift the color but don't change the distribution
         # of the image.
-        if not noise:
+        if noise is None:
             noise = torch.randn_like(x_zero, device=self.device)
 
         # extract method extracts the value of forward and diffusion parameters for a particular timestep
@@ -273,9 +273,32 @@ class Diffusion:
         x_t = sqrt_alpha_bar_t_prod_x_zero + sqrt_one_minus_alpha_bar_t_prod_noise
         return x_t
 
-    def p_losses(self, denoise_model, x_zero, t, noise=None, loss_type="l1"):
+    def p_losses(self, denoise_model, x_zero, label, t, noise=None, loss_type="l1"):
+        """
+        compute the loss for the reverse diffusion process
+
+        Parameters
+        ----------
+        denoise_model : UNet
+            denoising model
+        x_zero : (batch_size, channels, img_size, img_size) tensor
+            image at t=0
+        label : (batch_size,) tensor
+            labels for each sample in the batch
+        t : (batch_size,) tensor
+            t ~ U(0, T) where T is the number of timesteps
+        noise : (batch_size, channels, img_size, img_size) tensor, optional
+                standard normal noise vector, by default None
+        loss_type : str, optional
+            loss type, by default "l1"
+
+        Returns
+        -------
+        loss : float
+            loss value
+        """
         # TODO: (2.2): compute the input to the network using the forward diffusion process and predict the noise using the model; if noise is None, you will need to create a new noise vector, otherwise use the provided one.
-        if not noise:
+        if noise is None:
             noise = torch.randn_like(x_zero, device=self.device) # shape: (batch_size, channels, img_size, img_size), channels=3
 
         # compute x_t using forward diffusion process
@@ -284,7 +307,10 @@ class Diffusion:
         # predict the noise at timestep t using the model
         # Important: During training, we just denoise the image at timestep t using the denoising model, we don't need to
         # perform the reverse diffusion process to get the image at timestep t-1.
-        noise_pred = denoise_model(x_t, t) # shape: (batch_size, channels, img_size, img_size), channels=3
+        if self.classifier_free_guidance:
+            noise_pred = denoise_model(x_t, t, class_cond=label)
+        else:
+            noise_pred = denoise_model(x_t, t) # shape: (batch_size, channels, img_size, img_size), channels=3
 
         if loss_type == 'l1':
             # TODO: (2.2): implement an L1 loss for this task
