@@ -154,6 +154,10 @@ class Diffusion:
         # Use our model (noise predictor) to predict the mean
         # TODO: (2.2): The method should return the image at timestep t-1.
 
+        # check whether labels is Tensor if not convert it to Tensor
+        if not torch.is_tensor(label):
+            label = torch.tensor(label, device=self.device).long()
+
 
         # Here we are going to predict the noise for the timestep t-1 using the model.
         # Then to sample from the posterior distribution q(x_{t-1} | x_t, x_0) we need to
@@ -357,7 +361,7 @@ if __name__ == "__main__":
                   partial(cosine_beta_schedule, s=0.008),
                   partial(sigmoid_beta_schedule, 0.0001, 0.02),]
                   # partial(cosine_beta_schedule1, s=0.008)]
-    scheduler_names = ["linear", "cosine", "cosine1"]
+    scheduler_names = ["linear", "cosine", "sigmoid"]
     diffusors = [Diffusion(1000, scheduler, 1, device="cpu") for scheduler in schedulers]
     img = Image.open("/home/permute/Downloads/pikachu.jpg")
     # reduce size by factor of 4

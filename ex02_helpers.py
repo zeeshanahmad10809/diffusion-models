@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
@@ -15,6 +16,16 @@ def default(val, d):
     if exists(val):
         return val
     return d() if isfunction(d) else d
+
+
+def not_exist_create(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+def delete_if_exist(path):
+    if os.path.exists(path):
+        os.remove(path)
 
 
 def num_to_groups(num, divisor):
@@ -106,7 +117,9 @@ def  visualize_forward_diffusion(diffusor_list: list, schedulers: list, img: lis
     # let's first create a grid of images with 5 pixels margin in between each image, 50 pixels margin from the top.
     # we also want to append 20 pixels along the bottom of each row to write names of the beta schedulers, so we add 20 pixels
     # to the height of the grid for each row
-    grid = np.ones((rows * noised_imgs[0].shape[0] + 5 * (rows - 1) + 70, cols * noised_imgs[0].shape[1] + 5 * (cols - 1) + 40, 3))
+    grid = np.ones((rows * noised_imgs[0].shape[0] + 5 * (rows - 1) + 70,
+                    cols * noised_imgs[0].shape[1] + 5 * (cols - 1) + 40,
+                    3))
     for i, im in enumerate(noised_imgs):
         row = i // cols
         col = i % cols
@@ -119,7 +132,8 @@ def  visualize_forward_diffusion(diffusor_list: list, schedulers: list, img: lis
         # convert the img back to numpy array between [0, 1]
         im = np.array(img) / 255.
         # let's now put the image in the grid
-        grid[row * (im.shape[0] + 5) + 50 : (row + 1) * im.shape[0] + 5 * row + 50, col * (im.shape[1] + 5) + 20 : (col + 1) * im.shape[1] + 5 * col + 20, :] = im
+        grid[row * (im.shape[0] + 5) + 50 : (row + 1) * im.shape[0] + 5 * row + 50,
+             col * (im.shape[1] + 5) + 20 : (col + 1) * im.shape[1] + 5 * col + 20, :] = im
 
     # Now we have to add the time-step to the grid
     img = Image.fromarray(np.uint8(grid * 255))
@@ -158,11 +172,14 @@ def visualize_reverse_diffusion(imgs: list, cols: int, epoch: int, time_step: in
     """
     rows = len(imgs) // cols
     # multiply the grid by 255 to make it in the range [0, 255], 
-    grid = np.ones((rows * imgs[0].shape[0] + 5 * (rows - 1) + 70, cols * imgs[0].shape[1] + 5 * (cols - 1) + 40, 3))
+    grid = np.ones((rows * imgs[0].shape[0] + 5 * (rows - 1) + 70,
+                    cols * imgs[0].shape[1] + 5 * (cols - 1) + 40,
+                    3))
     for i, im in enumerate(imgs):
         row = i // cols
         col = i % cols
-        grid[row * (im.shape[0] + 5) + 50 : (row + 1) * im.shape[0] + 5 * row + 50, col * (im.shape[1] + 5) + 20 : (col + 1) * im.shape[1] + 5 * col + 20, :] = im
+        grid[row * (im.shape[0] + 5) + 50 : (row + 1) * im.shape[0] + 5 * row + 50,
+             col * (im.shape[1] + 5) + 20 : (col + 1) * im.shape[1] + 5 * col + 20, :] = im
 
     # add text to the image in the horizontol center with 25 pixels margin from top using PIL
     # we multiply the grid by 255 because PIL expects values in the range [0, 255], but our grid is in the range [0, 1]
@@ -198,7 +215,7 @@ def create_video(imgs: list, epoch: int, fps: str, store_path: str):
     imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in imgs]
 
     # check whether if already video exist for previous epochs, if so, append the new images to the video
-    if epoch == 0:
+    if epoch == 0 or epoch == None:
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video = cv2.VideoWriter(store_path, fourcc, fps, (imgs[0].shape[1], imgs[0].shape[0]))
         for img in imgs:
