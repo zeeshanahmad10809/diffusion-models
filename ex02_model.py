@@ -386,8 +386,9 @@ class Unet(nn.Module):
                 class_embedding = self.class_embedding(class_cond) # shape: (b, dim)
                 class_cond = self.class_mlp(class_embedding) # shape: (b, dim*4)
             else:
-                # During test time, replace all of the labels with the null class
-                if not class_cond:
+                # During inference time, we can use class labels if provided otherwise we can use the null class
+                if class_cond is None:
+                    # create token for null class
                     class_cond = torch.ones(b, dtype=torch.long)*self.num_classes # shape: (b,)
                 class_embedding = self.class_embedding(class_cond) # shape: (b, dim)
                 class_cond = self.class_mlp(class_embedding) # shape: (b, dim*4)
