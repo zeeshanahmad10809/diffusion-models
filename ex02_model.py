@@ -389,7 +389,7 @@ class Unet(nn.Module):
                 # During inference time, we can use class labels if provided otherwise we can use the null class
                 if class_cond is None:
                     # create token for null class
-                    class_cond = torch.ones(b, dtype=torch.long)*self.num_classes # shape: (b,)
+                    class_cond = torch.ones(b, dtype=torch.long, device=x.device)*self.num_classes # shape: (b,)
                 class_embedding = self.class_embedding(class_cond) # shape: (b, dim)
                 class_cond = self.class_mlp(class_embedding) # shape: (b, dim*4)
         

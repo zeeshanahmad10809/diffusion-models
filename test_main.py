@@ -77,6 +77,7 @@ def test(model, testloader, diffusor, device, args):
         for step, (images, labels) in enumerate(pbar):
 
             images = images.to(device)
+            labels= labels.to(device)
 
             # Algorithm 1 line 3: sample t uniformly for every example in the batch
             t = torch.randint(0, timesteps, (len(images),), device=device).long()
@@ -99,14 +100,17 @@ def train(model, trainloader, optimizer, diffusor, epoch, device, args):
 
     model.train() # remember to set model to train mode when training
     pbar = tqdm(trainloader)
+    total_loss = 0
     for step, (images, labels) in enumerate(pbar):
 
         images = images.to(device)
+        labels = labels.to(device)
         optimizer.zero_grad()
 
         # Algorithm 1 line 3: sample t uniformly for every example in the batch
         t = torch.randint(0, timesteps, (len(images),), device=device).long()
         loss = diffusor.p_losses(model, images, labels, t, loss_type="l2")
+        total_loss += loss.item()
 
         loss.backward()
         optimizer.step()
@@ -116,7 +120,9 @@ def train(model, trainloader, optimizer, diffusor, epoch, device, args):
                 epoch, step * len(images), len(trainloader.dataset),
                 100. * step / len(trainloader), loss.item()))
         if args.dry_run:
-            break
+            return total_loss
+        
+    return total_loss
 
 
 # def test(args):
@@ -183,7 +189,7 @@ def run(args):
     best_loss = np.inf
     best_epoch = 0
     for epoch in range(epochs):
-        train(model, trainloader, optimizer, diffusor, epoch, device, args)
+        train_loss = train(model, trainloader, optimizer, diffusor, epoch, device, args)
         val_loss = test(model, valloader, diffusor, device, args)
 
         if sample_images and (epoch % args.sample_interval == 0):
@@ -206,6 +212,10 @@ def run(args):
             torch.save(model.state_dict(), os.path.join("./models", args.experiment_name, f"epoch_{epoch}_ckpt.pt"))
             best_loss = val_loss
             best_epoch = epoch
+            print(f"epoch: {epoch}'s val_loss: {val_loss} is better than previous best loss: {best_loss}. Saving model...")
+
+        # log train and validation loss
+        print(f"epoch: {epoch}, train_loss: {train_loss}, val_loss: {val_loss}")
             
 
     test(model, testloader, diffusor, device, args)
