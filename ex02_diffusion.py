@@ -192,7 +192,8 @@ class Diffusion:
         else:
             # Here, we sample by scale and shift of standard normal distribution N(0, 1) using the mean and std of the
             # posterior distribution q(x_{t-1} | x_t, x_0), and return the sample x_{t-1} ~ q(x_{t-1} | x_t, x_0).
-            return posterior_mean + extract(self.sqrt_betas, t, x.shape) * torch.randn_like(x, device=self.device) # shape: (batch_size, channels, img_size, img_size)
+            posterior_beta_sqrt = torch.sqrt(extract(posterior_betas, t, x.shape)) # sqrt(variance or beta) is std. of the posterior distribution q(x_{t-1} | x_t, x_0)
+            return posterior_mean + posterior_beta_sqrt * torch.randn_like(x, device=self.device) # shape: (batch_size, channels, img_size, img_size)
 
     # Algorithm 2 (including returning all images)
     @torch.no_grad()
