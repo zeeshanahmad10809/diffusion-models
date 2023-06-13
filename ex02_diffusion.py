@@ -36,7 +36,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
     """
     # TODO: (2.3): Implement cosine beta/variance schedule as discussed in the paper mentioned above
     T = timesteps
-    t = torch.arange(0, T+1, dtype=torch.float64)
+    t = torch.arange(0, T+1, dtype=torch.float32)
 
     # compute f_t
     t_over_T_plus_s = t / (T + s)
@@ -65,7 +65,7 @@ def sigmoid_beta_schedule(beta_start, beta_end, timesteps):
     # Note that it saturates fairly fast for values -x << 0 << +x
     slimit = (-6, 6)
     T = timesteps
-    t = torch.arange(0, T+1, dtype=torch.float64)
+    t = torch.arange(0, T+1, dtype=torch.float32)
 
     # compute input of sigmoid function z_t
     z_t = slimit[0] + (2 * t / T) * slimit[1]
@@ -121,7 +121,7 @@ class Diffusion:
 
         # calculations for posterior q(x_{t-1} | x_t, x_0)
         # Note: we prepend 0 because we need t=0 inorder to calculate the posterior for t=1.
-        self.alphas_bar_minus_1 = torch.cat((torch.tensor([0]), self.alphas_bar[:-1])) # prepend 0 for t=1. shape (timesteps+1,)
+        self.alphas_bar_minus_1 = torch.cat((torch.tensor([1]), self.alphas_bar[:-1])) # prepend 0 for t=1. shape (timesteps+1,)
         self.sqrt_betas = torch.sqrt(self.betas) # shape (timesteps,)
         self.sqrt_recip_alphas = 1 / torch.sqrt(self.alphas) # shape (timesteps,)
         self.sqrt_recip_one_minus_alphas_bar = 1 / torch.sqrt(1 - self.alphas_bar) # shape (timesteps+1,)
@@ -155,7 +155,7 @@ class Diffusion:
         # TODO: (2.2): The method should return the image at timestep t-1.
 
         # check whether labels is Tensor if not convert it to Tensor
-        if not torch.is_tensor(label):
+        if label is not None and not torch.is_tensor(label):
             label = torch.tensor(label, device=self.device).long()
 
 
@@ -182,7 +182,7 @@ class Diffusion:
             pred_noise = model(x, t)
         
         posterior_mean = extract(self.sqrt_recip_alphas, t, x.shape) *\
-            (x - (extract(self.betas, t, x.shape) * pred_noise) /\
+            (x - (extract(self.betas, t, x.shape) * pred_noise) *\
             extract(self.sqrt_recip_one_minus_alphas_bar, t, x.shape)) # shape: (batch_size, channels, img_size, img_size)
         
         # Step-03: Sample from the posterior distribution q(x_{t-1} | x_t, x_0) using the reparameterization trick.

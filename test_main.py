@@ -10,7 +10,7 @@ from pathlib import Path
 import os
 
 from ex02_model import Unet
-from ex02_diffusion import Diffusion, linear_beta_schedule
+from ex02_diffusion import Diffusion, linear_beta_schedule, cosine_beta_schedule, sigmoid_beta_schedule
 from ex02_helpers import create_video, visualize_reverse_diffusion, not_exist_create, delete_if_exist
 from torchvision.utils import save_image
 
@@ -154,7 +154,8 @@ def run(args):
                  num_classes=num_classes).to(device)
     optimizer = AdamW(model.parameters(), lr=args.lr)
 
-    my_scheduler = lambda time_steps: linear_beta_schedule(0.0001, 0.02, time_steps)
+    # my_scheduler = lambda time_steps: linear_beta_schedule(0.0001, 0.02, time_steps)
+    my_scheduler = lambda time_steps: cosine_beta_schedule(time_steps)
     diffusor = Diffusion(timesteps, my_scheduler, image_size, classifier_free_guidance=classifier_free_guidance, device=device)
 
     # define image transformations (e.g. using torchvision)
@@ -183,6 +184,12 @@ def run(args):
     # let's create labels for classifier-free sampling
     if classifier_free_guidance:
         labels = torch.randint(0, num_classes, (num_samples,), device=device).long()
+        # cifar10_labels = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+        label_2_class = {0: 'airplane', 1: 'automobile', 2: 'bird', 3: 'cat', 4: 'deer', 
+                         5: 'dog', 6: 'frog', 7: 'horse', 8: 'ship', 9: 'truck'}
+        classes = [label_2_class[label.item()] for label in labels]    
+        print(f"labels: {labels}")
+        print(f"classes: {classes}")
     else:
         labels = None
 
@@ -245,13 +252,13 @@ class dotdict(dict):
 
 if __name__ == '__main__':
     args = {
-        "experiment_name": "draculla-candy",
-        "dry_run": True,
+        "experiment_name": "gemini-1",
+        "dry_run": False,
         "no_cuda": False,
-        "timesteps": 10, # usually 1000
-        "classifier_free": True,
+        "timesteps": 500, # usually 1000
+        "classifier_free": False,
         "num_classes": 10,
-        "epochs": 5,
+        "epochs": 100,
         "batch_size": 8,
         "lr": 0.0001,
         "log_interval": 1,
