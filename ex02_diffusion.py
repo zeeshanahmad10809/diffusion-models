@@ -39,7 +39,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
     t = torch.arange(0, T+1, dtype=torch.float32)
 
     # compute f_t
-    t_over_T_plus_s = t / (T + s)
+    t_over_T_plus_s = t / T + s
     one_plus_s = 1 + s
     f_t = torch.cos((t_over_T_plus_s / one_plus_s) * (torch.pi / 2))**2
 
