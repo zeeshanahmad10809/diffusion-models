@@ -154,8 +154,8 @@ def visualize_reverse_diffusion(imgs: list, cols: int, epoch: int, time_step: in
 
     Parameters
     ----------
-    imgs : list
-        list of images to visualize
+    imgs : list(np.uint8)
+        list of images of shape (height, width, channels), dtype: np.uint8, range: [0, 255]
     cols : int
         number of columns in the grid
     epoch : int

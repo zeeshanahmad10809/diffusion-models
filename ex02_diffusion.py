@@ -76,8 +76,6 @@ def sigmoid_beta_schedule(beta_start, beta_end, timesteps):
     return beta_t
 
 
-
-
 class Diffusion:
 
     # TODO: (2.4): Adapt all methods in this class for the conditional case. You can use y=None to encode that you want to train the model fully unconditionally.
@@ -115,17 +113,14 @@ class Diffusion:
         self.alphas = 1 - self.betas # shape (timesteps,)
         self.alphas_bar = torch.cumprod(self.alphas, axis=0) # shape (timesteps,). CAUTION: don't work without axis=o even though it's a 1D tensor
         
-        # calculations for diffusion q(x_t | x_{t-1}) and others
+        # calculations for diffusion q(x_t | x_{t-1}) and also posterior q(x_{t-1} | x_t, x_0)
         self.sqrt_alpha_bar = torch.sqrt(self.alphas_bar) # shape (timesteps,)
         self.sqrt_one_minus_alpha_bar = torch.sqrt(1 - self.alphas_bar) # shape (timesteps,)
 
         # calculations for posterior q(x_{t-1} | x_t, x_0)
         # Note: we prepend 0 because we need t=0 inorder to calculate the posterior for t=1.
         self.alphas_bar_minus_1 = torch.cat((torch.tensor([1]), self.alphas_bar[:-1])) # prepend 0 for t=1. shape (timesteps+1,)
-        self.sqrt_betas = torch.sqrt(self.betas) # shape (timesteps,)
         self.sqrt_recip_alphas = 1 / torch.sqrt(self.alphas) # shape (timesteps,)
-        self.sqrt_recip_one_minus_alphas_bar = 1 / torch.sqrt(1 - self.alphas_bar) # shape (timesteps+1,)
-
 
     @torch.no_grad()
     def p_sample(self, model, x, label, t, t_index):
@@ -169,7 +164,7 @@ class Diffusion:
 
 
         # Step-01: Compute variance of the posterior distribution q(x_{t-1} | x_t, x_0) anaytically using equ. 10 in the paper.
-        posterior_betas = ((1 - self.alphas_bar_minus_1) / (1 - self.alphas_bar)) * self.betas # shape (timesteps,)
+        posterior_betas = self.betas * (1 - self.alphas_bar_minus_1) / (1 - self.alphas_bar) # shape (timesteps,)
 
         # Step-02: Compute the mean of the posterior distribution q(x_{t-1} | x_t, x_0) using the reparameterization trick and equ. 13 in the paper.
         # Step-02.1: compute noise with class-condition and without class-condition
@@ -182,9 +177,11 @@ class Diffusion:
             pred_noise = model(x, t)
         
         posterior_mean = extract(self.sqrt_recip_alphas, t, x.shape) *\
-            (x - (extract(self.betas, t, x.shape) * pred_noise) *\
-            extract(self.sqrt_recip_one_minus_alphas_bar, t, x.shape)) # shape: (batch_size, channels, img_size, img_size)
-        
+            (x - (extract(self.betas, t, x.shape) * pred_noise) /\
+            extract(self.sqrt_one_minus_alpha_bar, t, x.shape)) # shape: (batch_size, channels, img_size, img_size)
+        # we could have create self.sqrt_one_minus_alpha_bar and divide it instead of multiplying with self.sqrt_recip_one_minus_alphas_bar
+        # it means we're dumb and we don't know how to optimize our code. But we're not dumb, we're smart.
+
         # Step-03: Sample from the posterior distribution q(x_{t-1} | x_t, x_0) using the reparameterization trick.
         if t_index == 0:
             # simply return the mean of the posterior distribution q(x_{t-1} | x_t, x_0) for t=0. Don't sample.
