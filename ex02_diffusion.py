@@ -52,7 +52,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
     beta_t = 1 - (alpha_bar_t / alpha_bar_t_minus_1)
     # IDDPM paper recommends to clip beta_t to 0.999, but don't provide information regarding the lower bound.
     # But for linear beta schedule, they use 0.0001 as lower bound, so we use the same lower bound for cosine beta schedule.
-    beta_t.clip_(min=0.0001, max=0.999)
+    beta_t.clip_(min=0.0001, max=0.9999)
 
     return beta_t
 

@@ -174,7 +174,7 @@ def visualize_reverse_diffusion(imgs: list, cols: int, epoch: int, time_step: in
     # multiply the grid by 255 to make it in the range [0, 255], 
     grid = np.ones((rows * imgs[0].shape[0] + 5 * (rows - 1) + 70,
                     cols * imgs[0].shape[1] + 5 * (cols - 1) + 40,
-                    3))
+                    3), dtype=np.uint8) * 255
     for i, im in enumerate(imgs):
         row = i // cols
         col = i % cols
@@ -183,7 +183,7 @@ def visualize_reverse_diffusion(imgs: list, cols: int, epoch: int, time_step: in
 
     # add text to the image in the horizontol center with 25 pixels margin from top using PIL
     # we multiply the grid by 255 because PIL expects values in the range [0, 255], but our grid is in the range [0, 1]
-    img = Image.fromarray(np.uint8(grid * 255))
+    img = Image.fromarray(grid)
     draw = ImageDraw.Draw(img)
     # font = ImageFont.truetype("arial.ttf", 162)
     draw.text((img.size[0] // 2 - 70, 25), f"epoch: {epoch}, time-step: {time_step}", (0, 0, 0))
